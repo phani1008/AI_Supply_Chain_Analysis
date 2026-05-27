@@ -1,0 +1,7 @@
+streamlit
+prophet
+groq
+pandas
+numpy
+matplotlib
+plotly
