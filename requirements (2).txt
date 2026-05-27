@@ -1,7 +1,10 @@
 streamlit
-prophet
-groq
 pandas
 numpy
 matplotlib
+prophet
+groq
+cmdstanpy
+holidays
 plotly
+scikit-learn
