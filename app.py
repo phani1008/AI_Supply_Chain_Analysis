@@ -230,12 +230,25 @@ else:
         data, forecast = run_forecast(forecast_days, scenario)
         time.sleep(1)
 
-    # Future forecast slice
-    future_forecast = forecast[forecast['ds'] > data['ds'].max()].copy()
+   # Future forecast slice
+future_forecast = forecast[forecast['ds'] > data['ds'].max()].copy()
 
-    # FIX 1 applied — pass full forecast for baseline
-    disruptions = detect_disruptions(future_forecast, forecast, risk_threshold)
+# ADD THESE LINES
+future_forecast['uncertainty_range'] = (
+    future_forecast['yhat_upper'] - future_forecast['yhat_lower']
+)
 
+future_forecast['uncertainty_pct'] = (
+    future_forecast['uncertainty_range']
+    / future_forecast['yhat'].abs()
+) * 100
+
+# Detect disruptions
+disruptions = detect_disruptions(
+    future_forecast,
+    forecast,
+    risk_threshold
+)
     avg_demand   = int(future_forecast['yhat'].mean())
     peak_demand  = int(future_forecast['yhat'].max())
     num_disruptions = len(disruptions)
