@@ -1,4 +1,3 @@
-%%writefile app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -22,11 +21,11 @@ st.markdown("""
 <style>
     .main { background-color: #0e1117; }
     .metric-card {
-        background: linear_gradient(135deg, #1f2937, #111827);
+        background: linear-gradient(135deg, #1f2937, #111827);
         border: 1px solid #374151;
         border-radius: 12px;
         padding: 20px;
-        text_align: center;
+        text-align: center;
         margin: 5px;
     }
     .metric-value { font-size: 2rem; font-weight: bold; color: #60a5fa; }
@@ -45,7 +44,7 @@ with st.sidebar:
     )
 
     forecast_days = st.slider("Forecast Horizon (days)", 7, 60, 30)
-    risk_threshold = st.slider("Risk Threshold (%)", 10, 50, 25)
+    risk_threshold = st.slider("Risk Threshold (%)", 10, 50, 25) # Reverted default to 25
 
     scenario = st.selectbox("Inject Scenario", [
         "None",
@@ -72,7 +71,7 @@ st.markdown("*Predicting supply chain failures using Prophet + LLaMA 3.3 70B*")
 # DATA GENERATION
 # ─────────────────────────────────────────
 @st.cache_data
-def generate_data(scenario="None"):
+def generate_data(): # Removed scenario parameter, always generates clean data
     np.random.seed(42)
     dates = pd.date_range(end=datetime.now(), periods=730, freq='D')
 
@@ -88,22 +87,6 @@ def generate_data(scenario="None"):
         'fuel_price': np.random.normal(95, 10, len(dates)),
     })
 
-    recent_start = dates[-120]
-
-    if scenario == "Port Strike (Mumbai)":
-        mask = data['ds'].between(recent_start, recent_start + timedelta(days=15))
-        data.loc[mask, 'y'] *= 0.25
-    elif scenario == "Festival Surge (Diwali)":
-        mask = data['ds'].between(recent_start, recent_start + timedelta(days=20))
-        data.loc[mask, 'y'] *= 2.0
-    elif scenario == "Weather Disaster (Cyclone)":
-        mask = data['ds'].between(recent_start, recent_start + timedelta(days=10))
-        data.loc[mask, 'y'] *= 0.2
-    elif scenario == "Fuel Price Surge":
-        mask = data['ds'].between(recent_start, recent_start + timedelta(days=30))
-        data.loc[mask, 'fuel_price'] *= 1.4
-        data.loc[mask, 'y'] *= 0.7
-
     data['y'] = data['y'].clip(lower=50)
     return data
 
@@ -111,8 +94,8 @@ def generate_data(scenario="None"):
 # FORECAST
 # ─────────────────────────────────────────
 @st.cache_data
-def run_forecast(forecast_days, scenario):
-    data = generate_data(scenario)
+def run_forecast(forecast_days):
+    data = generate_data() # Call without scenario
     model = Prophet(
         changepoint_prior_scale=0.15,
         seasonality_prior_scale=10,
@@ -137,10 +120,10 @@ def detect_disruptions(future_forecast, full_forecast, threshold):
         df['uncertainty_range'] / df['yhat'].abs()
     ) * 100
 
-    # FIX: Use full forecast for baseline quantile
-    low_demand_threshold = full_forecast['yhat'].quantile(0.15) # Changed from 0.05 to 0.15
+    # Use full forecast for baseline quantile
+    low_demand_threshold = full_forecast['yhat'].quantile(0.15)
 
-    # FIX: Only flag if BOTH conditions are extreme
+    # Only flag if BOTH conditions are extreme
     # uncertainty > threshold AND demand is critically low
     disruptions = df[
         (df['uncertainty_pct'] > threshold) &
@@ -228,26 +211,48 @@ else:
         st.stop()
 
     with st.spinner("Training forecasting model..."):
-        data, forecast = run_forecast(forecast_days, scenario)
+        data, forecast = run_forecast(forecast_days) # Call run_forecast without scenario
         time.sleep(1)
 
     # Future forecast slice
     future_forecast = forecast[forecast['ds'] > data['ds'].max()].copy()
 
-    # ADD THESE LINES
+    # Apply scenario effects directly to future_forecast['yhat']
+    if scenario != "None":
+        # Define the period for scenario injection within the future forecast
+        # Let's apply it to the first 10 days of the forecast period
+        injection_start_date = future_forecast['ds'].min()
+        injection_end_date = injection_start_date + timedelta(days=9)
+        
+        scenario_mask = future_forecast['ds'].between(injection_start_date, injection_end_date)
+        
+        if scenario == "Port Strike (Mumbai)":
+            future_forecast.loc[scenario_mask, 'yhat'] *= 0.25
+        elif scenario == "Festival Surge (Diwali)":
+            future_forecast.loc[scenario_mask, 'yhat'] *= 2.0
+        elif scenario == "Weather Disaster (Cyclone)":
+            future_forecast.loc[scenario_mask, 'yhat'] *= 0.2
+        elif scenario == "Fuel Price Surge":
+            future_forecast.loc[scenario_mask, 'yhat'] *= 0.7
+            # For fuel price, we might also want to increase uncertainty or affect other metrics
+            # For now, only modifying yhat for simplicity in detection.
+
+    # Ensure yhat values remain reasonable after scenario injection
+    future_forecast['yhat'] = future_forecast['yhat'].clip(lower=50)
+
     future_forecast['uncertainty_range'] = (
         future_forecast['yhat_upper'] - future_forecast['yhat_lower']
     )
 
     future_forecast['uncertainty_pct'] = (
-        future_forecast['uncertainty_range'] # Corrected from 'yhat_range' to 'uncertainty_range'
+        future_forecast['uncertainty_range']
         / future_forecast['yhat'].abs()
     ) * 100
 
     # Detect disruptions
     disruptions = detect_disruptions(
         future_forecast,
-        forecast,
+        forecast, # Use original full forecast for baseline quantile still
         risk_threshold
     )
     avg_demand   = int(future_forecast['yhat'].mean())
@@ -293,8 +298,11 @@ else:
 
     # Chart 1 — Forecast
     last_60 = forecast.tail(60 + forecast_days)
-    axes[0,0].plot(last_60['ds'], last_60['yhat'], color='#60a5fa', linewidth=2, label='Forecast')
-    axes[0,0].fill_between(last_60['ds'], last_60['yhat_lower'], last_60['yhat_upper'],
+    # Update last_60 to reflect scenario-modified future_forecast for plotting
+    last_60_modified = pd.concat([last_60[last_60['ds'] <= data['ds'].max()], future_forecast])
+    
+    axes[0,0].plot(last_60_modified['ds'], last_60_modified['yhat'], color='#60a5fa', linewidth=2, label='Forecast')
+    axes[0,0].fill_between(last_60_modified['ds'], last_60_modified['yhat_lower'], last_60_modified['yhat_upper'],
                            alpha=0.2, color='#60a5fa', label='Confidence')
     axes[0,0].set_title('📈 Demand Forecast', color='#e5e7eb', fontsize=11, fontweight='bold')
     axes[0,0].legend(facecolor='#374151', labelcolor='#e5e7eb', fontsize=8)
