@@ -21,11 +21,11 @@ st.markdown("""
 <style>
     .main { background-color: #0e1117; }
     .metric-card {
-        background: linear-gradient(135deg, #1f2937, #111827);
+        background: linear_gradient(135deg, #1f2937, #111827);
         border: 1px solid #374151;
         border-radius: 12px;
         padding: 20px;
-        text-align: center;
+        text_align: center;
         margin: 5px;
     }
     .metric-value { font-size: 2rem; font-weight: bold; color: #60a5fa; }
@@ -137,7 +137,7 @@ def detect_disruptions(future_forecast, full_forecast, threshold):
     ) * 100
 
     # FIX: Use full forecast for baseline quantile
-    low_demand_threshold = full_forecast['yhat'].quantile(0.05) # Changed from 0.15 to 0.05
+    low_demand_threshold = full_forecast['yhat'].quantile(0.15) # Changed from 0.05 to 0.15
 
     # FIX: Only flag if BOTH conditions are extreme
     # uncertainty > threshold AND demand is critically low
